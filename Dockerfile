@@ -70,14 +70,15 @@ RUN \
 		gnupg dirmngr \
 		git \
 		ant ruby rbenv make \
+		daemon \
+		libgpm2 libncurses6 libprocps7 \
+		net-tools procps psmisc \
 	"; \
 	savedAptMark="$(apt-mark showmanual) ${appDeps}"; \
 	\
 	\
 	\
 # 安装临时使用的软件包及依赖项。相关软件包在镜像创建完后时，会被清理
-	# 解决错误：update-alternatives: error: error creating symbolic link '/usr/share/man/man
-	mkdir -p /usr/share/man/man1; \
 	fetchDeps=" \
 		apt-transport-https \
 		lsb-release \
