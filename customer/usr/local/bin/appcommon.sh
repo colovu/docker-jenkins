@@ -5,12 +5,12 @@
 
 # 加载依赖脚本
 . /usr/local/scripts/libcommon.sh       # 通用函数库
+
 . /usr/local/scripts/libfile.sh
 . /usr/local/scripts/libfs.sh
 . /usr/local/scripts/libos.sh
 . /usr/local/scripts/libservice.sh
 . /usr/local/scripts/libvalidations.sh
-. /usr/local/scripts/libnet.sh
 
 # 函数列表
 
@@ -21,38 +21,37 @@
 #   *_* : 应用配置文件使用的全局变量，变量名根据配置项定义
 # 返回值:
 #   可以被 'eval' 使用的序列化输出
-docker_app_env() {
-    cat <<"EOF"
-# Common Settings
-export ENV_DEBUG=${ENV_DEBUG:-false}
+app_env() {
+    cat <<-'EOF'
+		# Common Settings
+		export ENV_DEBUG=${ENV_DEBUG:-false}
 
-# Paths
+		# Paths
 
-# Application settings
-export JENKINS_PORT=${JENKINS_PORT:-8080}
+		# Application settings
+		export JENKINS_PORT=${JENKINS_PORT:-8080}
+		export JENKINS_HOME=${APP_DATA_DIR}
+		export JENKINS_SLAVE_AGENT_PORT=${JENKINS_SLAVE_AGENT_PORT:-50000}
 
-# Application Cluster configuration
+		# Application Cluster configuration
 
-# Application TLS Settings
+		# Application TLS Settings
 
-# JVM settings
+		# JVM settings
 
-# Application Authentication
-export JENKINS_USER=${JENKINS_USER:-jenkins}
-
+		# Application Authentication
+		export JENKINS_USER=${JENKINS_USER:-jenkins}
 EOF
 
     # 利用 *_FILE 设置密码，不在配置命令中设置密码，增强安全性
 #    if [[ -f "${ZOO_CLIENT_PASSWORD_FILE:-}" ]]; then
 #        cat <<"EOF"
-#export ZOO_CLIENT_PASSWORD="$(< "${ZOO_CLIENT_PASSWORD_FILE}")"
+#			export ZOO_CLIENT_PASSWORD="$(< "${ZOO_CLIENT_PASSWORD_FILE}")"
 #EOF
 #    fi
 }
 
 # 设置环境变量 JVMFLAGS
-# 全局变量:
-#   JVMFLAGS
 # 参数:
 #   $1 - value
 jenkins_export_jvmflags() {
@@ -63,14 +62,12 @@ jenkins_export_jvmflags() {
 }
 
 # 配置 HEAP 大小
-# 全局变量:
-#   JVMFLAGS
 # 参数:
 #   $1 - HEAP 大小
 jenkins_configure_heap_size() {
     local -r heap_size="${1:?heap_size is required}"
 
-    if [[ "$JVMFLAGS" =~ -Xm[xs].*-Xm[xs] ]]; then
+    if [[ "${JVMFLAGS}" =~ -Xm[xs].*-Xm[xs] ]]; then
         LOG_D "Using specified values (JVMFLAGS=${JVMFLAGS})"
     else
         LOG_D "Setting '-Xmx${heap_size}m -Xms${heap_size}m' heap options..."
@@ -79,8 +76,6 @@ jenkins_configure_heap_size() {
 }
 
 # 检测用户参数信息是否满足条件; 针对部分权限过于开放情况，打印提示信息
-# 全局变量：
-#   ZOO_*
 app_verify_minimum_env() {
     local error_code=0
 
@@ -121,7 +116,7 @@ app_wait_service() {
     let i=1
 
     if [[ -z "$(which nc)" ]]; then
-        LOG_E "Nedd nc installed before, command: apt-get install netcat."
+        LOG_E "Nedd nc installed before, command: \"apt-get install netcat\"."
         exit 1
     fi
 
@@ -151,10 +146,9 @@ app_wait_service() {
 }
 
 # 以后台方式启动应用服务，并等待启动就绪
-# 全局变量:
-#   ZOO_*
 app_start_server_bg() {
     is_app_server_running && return
+
     LOG_I "Starting ${APP_NAME} in background..."
 
 	# 使用内置脚本启动服务
@@ -180,8 +174,6 @@ app_start_server_bg() {
 }
 
 # 停止应用服务
-# 全局变量:
-#   APP_*
 app_stop_server() {
     is_app_server_running || return
     LOG_I "Stopping ${APP_NAME}..."
@@ -209,10 +201,6 @@ app_stop_server() {
 }
 
 # 检测应用服务是否在后台运行中
-# 全局变量:
-#   ZOO_*
-# 返回值:
-#   布尔值
 is_app_server_running() {
     LOG_D "Check if ${APP_NAME} is running..."
     local pid
@@ -232,8 +220,6 @@ app_clean_tmp_file() {
 }
 
 # 在重新启动容器时，删除标志文件及必须删除的临时文件 (容器重新启动)
-# 全局变量:
-#   APP_*
 app_clean_from_restart() {
     LOG_D "Clean ${APP_NAME} tmp files for restart..."
     local -r -a files=(
@@ -250,7 +236,7 @@ app_clean_from_restart() {
 
 # 应用默认初始化操作
 # 执行完毕后，生成文件 ${APP_CONF_DIR}/.app_init_flag 及 ${APP_DATA_DIR}/.data_init_flag 文件
-docker_app_init() {
+app_default_init() {
 	app_clean_from_restart
     LOG_D "Check init status of ${APP_NAME}..."
 
@@ -281,9 +267,38 @@ docker_app_init() {
     fi
 }
 
+# 用户自定义的前置初始化操作，依次执行目录 preinitdb.d 中的初始化脚本
+# 执行完毕后，生成文件 ${APP_DATA_DIR}/.custom_preinit_flag
+app_custom_preinit() {
+    LOG_D "Check custom pre-init status of ${APP_NAME}..."
+
+    # 检测用户配置文件目录是否存在 preinitdb.d 文件夹，如果存在，尝试执行目录中的初始化脚本
+    if [ -d "/srv/conf/${APP_NAME}/preinitdb.d" ]; then
+        # 检测数据存储目录是否存在已初始化标志文件；如果不存在，检索可执行脚本文件并进行初始化操作
+        if [[ -n $(find "/srv/conf/${APP_NAME}/preinitdb.d/" -type f -regex ".*\.\(sh\)") ]] && \
+            [[ ! -f "${APP_DATA_DIR}/.custom_preinit_flag" ]]; then
+            LOG_I "Process custom pre-init scripts from /srv/conf/${APP_NAME}/preinitdb.d..."
+
+            # 检索所有可执行脚本，排序后执行
+            find "/srv/conf/${APP_NAME}/preinitdb.d/" -type f -regex ".*\.\(sh\)" | sort | process_init_files
+
+            touch ${APP_DATA_DIR}/.custom_preinit_flag
+            echo "$(date '+%Y-%m-%d %H:%M:%S') : Init success." >> ${APP_DATA_DIR}/.custom_preinit_flag
+            LOG_I "Custom preinit for ${APP_NAME} complete."
+        else
+            LOG_I "Custom preinit for ${APP_NAME} already done before, skipping initialization."
+        fi
+    fi
+
+    # 检测依赖的服务是否就绪
+    #for i in ${SERVICE_PRECONDITION[@]}; do
+    #    app_wait_service "${i}"
+    #done
+}
+
 # 用户自定义的应用初始化操作，依次执行目录initdb.d中的初始化脚本
 # 执行完毕后，生成文件 ${APP_DATA_DIR}/.custom_init_flag
-docker_custom_init() {
+app_custom_init() {
     LOG_D "Check custom init status of ${APP_NAME}..."
 
     # 检测用户配置文件目录是否存在 initdb.d 文件夹，如果存在，尝试执行目录中的初始化脚本
@@ -306,8 +321,8 @@ docker_custom_init() {
                             LOG_D "Sourcing $f"; . "$f"
                         fi
                         ;;
-                    *.sql)    LOG_D "Executing $f"; postgresql_execute "$PG_DATABASE" "$PG_INITSCRIPTS_USERNAME" "$PG_INITSCRIPTS_PASSWORD" < "$f";;
-                    *.sql.gz) LOG_D "Executing $f"; gunzip -c "$f" | postgresql_execute "$PG_DATABASE" "$PG_INITSCRIPTS_USERNAME" "$PG_INITSCRIPTS_PASSWORD";;
+                    #*.sql)    LOG_D "Executing $f"; postgresql_execute "$PG_DATABASE" "$PG_INITSCRIPTS_USERNAME" "$PG_INITSCRIPTS_PASSWORD" < "$f";;
+                    #*.sql.gz) LOG_D "Executing $f"; gunzip -c "$f" | postgresql_execute "$PG_DATABASE" "$PG_INITSCRIPTS_USERNAME" "$PG_INITSCRIPTS_PASSWORD";;
                     *)        LOG_D "Ignoring $f" ;;
                 esac
             done
@@ -329,3 +344,4 @@ docker_custom_init() {
 	# 绑定所有 IP ，启用远程访问
     app_enable_remote_connections
 }
+
