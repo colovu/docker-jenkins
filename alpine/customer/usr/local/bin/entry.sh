@@ -22,7 +22,7 @@ if ! is_sourced; then
 	print_image_welcome
 	print_command_help "$@"
 
-	if [ -e "/var/run/docker.sock" ]; then
+	if [ -e "/var/run/docker.sock" ] && is_root; then
 		LOG_I "Check group for Docker Client"
 		jenkins_enable_nss_wrapper
 	fi
