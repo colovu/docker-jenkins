@@ -53,10 +53,10 @@ ARG maven_ver=3.6.3
 
 ENV APP_NAME=jenkins \
 	APP_USER=jenkins \
-	APP_EXEC=java \
+	APP_EXEC=jenkins.sh \
 	APP_VERSION=2.235.5
 
-ENV	APP_HOME_DIR=/usr/local/${APP_NAME} \
+ENV	APP_HOME_DIR=/usr/share/${APP_NAME} \
 	APP_DEF_DIR=/etc/${APP_NAME} \
 	APP_CONF_DIR=/srv/conf/${APP_NAME} \
 	APP_DATA_DIR=/srv/data/${APP_NAME} \
@@ -67,17 +67,20 @@ ENV	APP_HOME_DIR=/usr/local/${APP_NAME} \
 	APP_CERT_DIR=/srv/cert/${APP_NAME} 
 
 ENV	MAVEN_HOME_DIR=/usr/local/maven \
-	JENKINS_HOME=${APP_DATA_DIR} \
+	JENKINS_WAR=${APP_HOME_DIR}/jenkins.war \
+	JENKINS_HOME=/var/jenkins_home \
 	JENKINS_SLAVE_AGENT_PORT=50000 \
-	JENKINS_VERSION=${APP_VERSION} \
-	JENKINS_UC=https://updates.jenkins.io \
-	JENKINS_UC_EXPERIMENTAL=https://updates.jenkins.io/experimental \
-	COPY_REFERENCE_FILE_LOG=${APP_DATA_DIR}/copy_reference_file.log
+	JENKINS_VERSION=${APP_VERSION} 
 
-ENV JENKINS_UC https://updates.jenkins-zh.cn \
-	JENKINS_UC_DOWNLOAD https://mirrors.tuna.tsinghua.edu.cn/jenkins \
-	JENKINS_OPTS="-Dhudson.model.UpdateCenter.updateCenterUrl=https://updates.jenkins-zh.cn/update-center.json"
+ENV JENKINS_UC_EXPERIMENTAL=https://updates.jenkins.io/experimental \
+	COPY_REFERENCE_FILE_LOG=${JENKINS_HOME}/copy_reference_file.log \
+	REF=${APP_HOME_DIR}/ref \
+	JENKINS_UC=https://updates.jenkins-zh.cn \
+	JENKINS_UC_DOWNLOAD=https://mirrors.tuna.tsinghua.edu.cn/jenkins
+#	JENKINS_UC=https://updates.jenkins.io \
 #	JENKINS_OPTS="-Djenkins.install.runSetupWizard=false"
+#	JENKINS_OPTS="-Djava.awt.headless=true"
+#	CATALINA_OPTS="-Djava.awt.headless=true"
 
 ENV PATH="${MAVEN_HOME_DIR}/bin:${APP_HOME_DIR}:${PATH}"
 
@@ -88,20 +91,21 @@ LABEL \
 	"Vendor"="Endial Fang (endial@126.com)"
 
 # 应用健康状态检查
-HEALTHCHECK CMD wget -O- -q http://localhost:8080/ || exit 1
+HEALTHCHECK CMD wget -O- -q http://localhost:8080/login >/dev/null || exit 1
 
 COPY customer /
 
 # 以包管理方式安装软件包(Optional)
 RUN select_source ${apt_source}
-RUN install_pkg curl ca-certificates bzr netbase git mercurial openssh-client subversion procps bzip2 unzip xz-utils
-#RUN install_pkg ant ruby rbenv make daemon libgpm2 libncurses6 libprocps7 net-tools psmisc ca-certificates-java
+RUN install_pkg wget curl ca-certificates bzr netbase git mercurial openssh-client subversion procps bzip2 unzip xz-utils
+RUN install_pkg psmisc ant libfreetype6 libncurses6
+#RUN install_pkg daemon ruby rbenv libgpm2 libprocps7 make net-tools ca-certificates-java
 
 RUN create_user && prepare_env
 
 # 从预处理过程中拷贝软件包(Optional)
 COPY --from=builder /usr/local/apache-maven-${maven_ver}/ /usr/local/maven
-COPY --from=builder /usr/local/bin/jenkins.war /usr/local/jenkins/jenkins.war
+COPY --from=builder /usr/local/bin/jenkins.war /usr/share/jenkins/jenkins.war
 
 # 执行预处理脚本，并验证安装的软件包
 RUN set -eux; \
@@ -121,4 +125,5 @@ EXPOSE 8080 50000
 ENTRYPOINT ["entry.sh"]
 
 # 应用程序的服务命令，必须使用非守护进程方式运行。如果使用变量，则该变量必须在运行环境中存在（ENV可以获取）
-CMD ["${APP_EXEC}", "-jar", "${APP_HOME_DIR}/jenkins.war"]
+#CMD ["${APP_EXEC}", "-jar", "${APP_HOME_DIR}/jenkins.war"]
+CMD ["jenkins.sh"]

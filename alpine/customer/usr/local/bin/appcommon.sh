@@ -26,19 +26,6 @@ app_env() {
 		# Common Settings
 		export ENV_DEBUG=${ENV_DEBUG:-false}
 
-		# Paths
-
-		# Application settings
-		export JENKINS_PORT=${JENKINS_PORT:-8080}
-		export JENKINS_HOME=${APP_DATA_DIR}
-		export JENKINS_SLAVE_AGENT_PORT=${JENKINS_SLAVE_AGENT_PORT:-50000}
-
-		# Application Cluster configuration
-
-		# Application TLS Settings
-
-		# JVM settings
-
 		# Application Authentication
 		export JENKINS_USER=${JENKINS_USER:-jenkins}
 EOF
@@ -49,6 +36,29 @@ EOF
 #			export ZOO_CLIENT_PASSWORD="$(< "${ZOO_CLIENT_PASSWORD_FILE}")"
 #EOF
 #    fi
+}
+
+# 配置 libnss_wrapper 以使得 PostgreSQL 命令可以以任意用户身份执行
+jenkins_enable_nss_wrapper() {
+    SOCK_DOCKER_GID=`ls -ng /var/run/docker.sock | tr -s " " | cut -f3 -d' '`
+    [ ! -e "${JENKINS_HOME}/nss_wrapper_passwd" ] && touch "${JENKINS_HOME}/nss_wrapper_passwd"
+    [ ! -e "${JENKINS_HOME}/nss_wrapper_group" ] && touch "${JENKINS_HOME}/nss_wrapper_group"
+    export NSS_WRAPPER_PASSWD="${JENKINS_HOME}/nss_wrapper_passwd"
+    export NSS_WRAPPER_GROUP="${JENKINS_HOME}/nss_wrapper_group"
+    if [ -e /usr/lib/libnss_wrapper.so ] && is_root ; then
+        LOG_D "Configuring libnss_wrapper..."
+        echo "jenkins:x:999:${SOCK_DOCKER_GID}:Jenkins:/srv/data:/bin/bash" > "${NSS_WRAPPER_PASSWD}"
+        echo "jenkins:x:${SOCK_DOCKER_GID}:" > "${NSS_WRAPPER_GROUP}"    
+    fi
+    export LD_PRELOAD='/usr/lib/libnss_wrapper.so'
+}
+
+jenkins_disable_nss_wrapper() {
+    # unset/cleanup "nss_wrapper" bits
+    if [ "${LD_PRELOAD:-}" = '/usr/lib/libnss_wrapper.so' ] && is_root ; then
+        rm -f "${NSS_WRAPPER_PASSWD}" "${NSS_WRAPPER_GROUP}"
+        unset LD_PRELOAD NSS_WRAPPER_PASSWD NSS_WRAPPER_GROUP
+    fi
 }
 
 # 设置环境变量 JVMFLAGS
