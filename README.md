@@ -12,7 +12,7 @@
 
 **镜像信息**
 
-* 镜像地址：colovu/jenkins:latest
+* 镜像地址：registry.cn-shenzhen.aliyuncs.com/colovu/jenkins:LTS
 
 
 
@@ -21,7 +21,7 @@
 Docker 快速启动命令：
 
 ```shell
-$ docker run -d colovu/jenkins
+$ docker run -d registry.cn-shenzhen.aliyuncs.com/colovu/jenkins:LTS
 ```
 
 Docker-Compose 快速启动命令：
